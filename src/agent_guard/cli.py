@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
+import os
 import sys
+import time
 from collections.abc import Sequence
 from contextlib import AsyncExitStack
 
@@ -51,6 +54,40 @@ def cmd_tools(args: argparse.Namespace) -> int:
     return 0
 
 
+def _reviewer() -> str:
+    return os.environ.get("USERNAME") or os.environ.get("USER") or "cli"
+
+
+def cmd_pending(args: argparse.Namespace) -> int:
+    from agent_guard.approvals import ApprovalStore
+
+    store = ApprovalStore(_load(args).approvals_path)
+    items = store.list(include_resolved=args.all)
+    if not items:
+        print("No pending approvals.")
+        return 0
+    now = time.time()
+    for r in items:
+        left = f"{max(0, r.expires_at - now):.0f}s left" if r.status == "pending" else r.status
+        print(f"{r.id}  {r.tool_id}  agent={r.agent}  [{left}]")
+        print(f"          reason: {r.reason}")
+        print(f"          args:   {json.dumps(r.arguments, ensure_ascii=False)}")
+    return 0
+
+
+def _decide(args: argparse.Namespace, approved: bool) -> int:
+    from agent_guard.approvals import ApprovalError, ApprovalStore
+
+    store = ApprovalStore(_load(args).approvals_path)
+    try:
+        req = store.decide(args.id, approved, by=args.by or _reviewer(), note=args.note)
+    except ApprovalError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    print(f"{'Approved' if approved else 'Denied'} {req.id}: {req.tool_id} {json.dumps(req.arguments, ensure_ascii=False)}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="agent-guard", description="Policy-enforcing MCP proxy for AI agent tool calls.")
     p.add_argument("--version", action="version", version=f"agent-guard {__version__}")
@@ -66,6 +103,13 @@ def build_parser() -> argparse.ArgumentParser:
     add("run", cmd_run, "Serve the proxy over stdio (point your MCP client at this command).")
     add("validate", cmd_validate, "Validate the config and policy files.")
     add("tools", cmd_tools, "Start upstream servers and list the tools agent-guard exposes.")
+    sp = add("pending", cmd_pending, "List tool calls waiting for human approval.")
+    sp.add_argument("--all", action="store_true", help="include resolved/expired requests")
+    for name, approved in (("approve", True), ("deny", False)):
+        sp = add(name, (lambda a, ok=approved: _decide(a, ok)), f"{name.capitalize()} a pending tool call.")
+        sp.add_argument("id", help="approval id (see `agent-guard pending`)")
+        sp.add_argument("--note", help="note recorded with the decision (shown to the agent on deny)")
+        sp.add_argument("--by", help="reviewer name (default: current OS user)")
     return p
 
 

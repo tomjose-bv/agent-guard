@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from collections import Counter
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -19,9 +19,13 @@ from mcp.server.stdio import stdio_server
 from agent_guard import __version__
 from agent_guard.config import Config
 from agent_guard import pii
-from agent_guard.policy import DENY_SUFFIX, PolicyEngine
+from agent_guard.approvals import ApprovalStore
+from agent_guard.policy import DENY_SUFFIX, Decision, PolicyEngine
 
 log = logging.getLogger("agent_guard.proxy")
+
+
+ProgressFn = Callable[[str], Awaitable[None]]
 
 
 @dataclass(frozen=True)
@@ -68,6 +72,7 @@ class GuardedProxy:
         self.config = config
         self.engine = engine or PolicyEngine(config.load_policy())
         self.agent_id = os.environ.get("AGENT_GUARD_AGENT_ID") or config.agent_id
+        self.approvals = ApprovalStore(config.approvals_path)
         self.clients: dict[str, Client] = {}
         self.routes: dict[str, ToolRoute] = {}
 
@@ -111,7 +116,9 @@ class GuardedProxy:
             if not (self.config.hide_denied_tools and self.engine.statically_denied(route.tool_id, self.agent_id))
         ]
 
-    async def call_tool(self, name: str, arguments: dict[str, Any] | None) -> types.CallToolResult:
+    async def call_tool(
+        self, name: str, arguments: dict[str, Any] | None, progress: ProgressFn | None = None
+    ) -> types.CallToolResult:
         route = self.routes.get(name)
         if route is None:
             return error_result(f"agent-guard: unknown tool {name!r}")
@@ -122,7 +129,9 @@ class GuardedProxy:
         if decision.action == "deny":
             return error_result(decision.reason)
         if decision.action == "require_approval":
-            return error_result(f"agent-guard denied {tool_id}: approval required but not available")
+            denial = await self.await_approval(tool_id, args, decision, progress)
+            if denial:
+                return error_result(denial)
 
         pii_rule = self.engine.policy.pii_for(tool_id)
         if pii_rule and pii_rule.arguments != "off":
@@ -154,6 +163,36 @@ class GuardedProxy:
                 log.info("PII in result of %s: %s (%s)", tool_id, pii.summarize(counts), pii_rule.results)
         return result
 
+    async def await_approval(
+        self, tool_id: str, args: dict[str, Any], decision: Decision, progress: ProgressFn | None
+    ) -> str | None:
+        """Hold the call until a human approves it. Returns a deny message, or None if approved."""
+        timeout = decision.approval_timeout or self.config.approvals.timeout_seconds
+        shown_args, _ = pii.redact_value(args)  # reviewers see arguments with PII masked
+        req = self.approvals.create(tool_id, self.agent_id, shown_args, decision.reason, decision.rule, timeout)
+        log.warning(
+            "approval required for %s (%s). Approve: agent-guard approve %s | Deny: agent-guard deny %s",
+            tool_id, decision.reason, req.id, req.id,
+        )  # fmt: skip
+
+        async def tick(remaining: float) -> None:
+            if progress:
+                await progress(f"waiting for human approval {req.id} ({remaining:.0f}s left)")
+
+        if progress:
+            await progress(f"waiting for human approval {req.id}: {decision.reason}")
+        outcome, d = await self.approvals.wait(req, self.config.approvals.poll_interval_seconds, tick)
+        if outcome == "approved":
+            return None
+        if outcome == "denied":
+            note = f": {d.note}" if d and d.note else ""
+            by = f" ({d.by})" if d else ""
+            return f"agent-guard denied {tool_id}: a human reviewer{by} rejected this call{note}.{DENY_SUFFIX}"
+        return (
+            f"agent-guard denied {tool_id}: approval {req.id} was not granted within {timeout:g}s "
+            f"(timeout means deny).{DENY_SUFFIX}"
+        )
+
     async def forward(self, route: ToolRoute, arguments: dict[str, Any]) -> types.CallToolResult:
         client = self.clients[route.server]
         try:
@@ -178,7 +217,17 @@ class GuardedProxy:
             return types.ListToolsResult(tools=proxy.list_tools())
 
         async def on_call_tool(ctx: ServerRequestContext[Any], params: types.CallToolRequestParams) -> types.CallToolResult:
-            return await proxy.call_tool(params.name, params.arguments)
+            step = 0
+
+            async def progress(message: str) -> None:
+                nonlocal step
+                step += 1
+                try:
+                    await ctx.session.report_progress(step, None, message)
+                except Exception:  # progress is best-effort
+                    log.debug("could not send progress", exc_info=True)
+
+            return await proxy.call_tool(params.name, params.arguments, progress)
 
         return Server(
             "agent-guard",
