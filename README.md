@@ -54,7 +54,7 @@ Requires Python 3.10+ and git.
 **Windows (PowerShell)**
 
 ```powershell
-git clone <this-repo-url> agent-guard
+git clone https://github.com/tomjose-bv/agent-guard.git agent-guard
 cd agent-guard
 powershell -ExecutionPolicy Bypass -File scripts\setup.ps1     # venv + install + tests
 .\.venv\Scripts\python examples\demo_agent.py                  # scripted demo, no LLM needed
@@ -64,7 +64,7 @@ powershell -ExecutionPolicy Bypass -File scripts\setup.ps1     # venv + install 
 **macOS / Linux**
 
 ```sh
-git clone <this-repo-url> agent-guard && cd agent-guard
+git clone https://github.com/tomjose-bv/agent-guard.git agent-guard && cd agent-guard
 sh scripts/setup.sh
 .venv/bin/python examples/demo_agent.py
 .venv/bin/agent-guard ui
