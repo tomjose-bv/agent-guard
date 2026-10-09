@@ -234,6 +234,7 @@ class Decision:
 
 
 DENY_SUFFIX = " This is a policy decision by agent-guard; do not retry the same call."
+LIMIT_SUFFIX = " This is a usage limit enforced by agent-guard."
 
 
 class PolicyEngine:
@@ -255,8 +256,8 @@ class PolicyEngine:
         matched = [(i, r) for i, r in enumerate(self.policy.rules) if r.matches(tool_id, agent, args)]
         labels = [r.label(i) for i, r in matched]
 
-        def deny(reason: str, rule: str | None) -> Decision:
-            return Decision("deny", f"agent-guard denied {tool_id}: {reason}.{DENY_SUFFIX}", rule, labels)
+        def deny(reason: str, rule: str | None, suffix: str = DENY_SUFFIX) -> Decision:
+            return Decision("deny", f"agent-guard denied {tool_id}: {reason}.{suffix}", rule, labels)
 
         for i, r in matched:
             if r.action == "deny":
@@ -271,7 +272,7 @@ class PolicyEngine:
         problem_rule = self.limits.check(limit_rules, tool_id, agent, args)
         if problem_rule:
             problem, label = problem_rule
-            return deny(problem, label)
+            return deny(problem, label, LIMIT_SUFFIX)
 
         approval = [(i, r) for i, r in matched if r.action == "require_approval"]
         if approval:
@@ -296,7 +297,7 @@ class PolicyEngine:
         """Atomically re-check and consume rate/spend budget. Returns a deny message or None."""
         problem = self.limits.check_and_record(decision._limit_rules, tool_id, agent, args)
         if problem:
-            return f"agent-guard denied {tool_id}: {problem[0]}.{DENY_SUFFIX}"
+            return f"agent-guard denied {tool_id}: {problem[0]}.{LIMIT_SUFFIX}"
         return None
 
 
