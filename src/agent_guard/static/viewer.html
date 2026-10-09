@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="agent-guard-token" content="__AGENT_GUARD_TOKEN__">
+<title>agent-guard viewer</title>
+<style>
+:root { --bg:#f7f7f8; --panel:#fff; --text:#1d1d20; --muted:#6b6b76; --line:#e3e3e8;
+  --ok:#1f7a3f; --okbg:#e3f4e8; --bad:#a32020; --badbg:#fbe5e5; --warn:#8a5a00; --warnbg:#fdf0d5; --accent:#2b59c3; }
+@media (prefers-color-scheme: dark) { :root { --bg:#141417; --panel:#1d1d22; --text:#e8e8ec; --muted:#9a9aa6; --line:#2f2f37;
+  --ok:#6fd394; --okbg:#173322; --bad:#ff8a8a; --badbg:#3a1a1a; --warn:#ffc966; --warnbg:#3a2e12; --accent:#7ea2ff; } }
+* { box-sizing:border-box; }
+body { margin:0; font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); }
+header { display:flex; flex-wrap:wrap; gap:12px; align-items:center; padding:14px 16px; border-bottom:1px solid var(--line); background:var(--panel); }
+header h1 { font-size:17px; margin:0; }
+.muted { color:var(--muted); }
+main { padding:16px; max-width:1400px; margin:0 auto; }
+section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-bottom:16px; }
+h2 { font-size:15px; margin:0 0 10px; }
+.badge { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; font-weight:600; white-space:nowrap; }
+.ok { color:var(--ok); background:var(--okbg); } .bad { color:var(--bad); background:var(--badbg); } .warn { color:var(--warn); background:var(--warnbg); }
+.filters { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
+input, select, button { font:inherit; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:5px 8px; }
+button { cursor:pointer; } button.approve { border-color:var(--ok); color:var(--ok); } button.deny { border-color:var(--bad); color:var(--bad); }
+.table-wrap { overflow-x:auto; }
+table { width:100%; border-collapse:collapse; }
+th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+th { font-size:12px; color:var(--muted); font-weight:600; }
+td.args, td.reason { max-width:380px; overflow-wrap:anywhere; }
+code { font:12px ui-monospace,Consolas,monospace; }
+tr.row { cursor:pointer; } tr.row:hover { background:var(--bg); }
+pre { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; font:12px ui-monospace,Consolas,monospace; }
+.pending-item { border:1px solid var(--line); border-radius:6px; padding:10px; margin-bottom:8px; display:grid; gap:6px; }
+.actions { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>agent-guard</h1>
+  <span id="chain" class="badge">chain: ?</span>
+  <span class="muted" id="path"></span>
+  <span class="muted" style="margin-left:auto" id="updated"></span>
+</header>
+<main>
+  <section>
+    <h2>Pending approvals <span id="pcount" class="muted"></span></h2>
+    <div id="pending" class="muted">None.</div>
+  </section>
+  <section>
+    <h2>Tool calls</h2>
+    <div class="filters">
+      <input id="q" placeholder="Search tool, args, reason..." size="30">
+      <select id="decision"><option value="">All decisions</option></select>
+      <select id="tool"><option value="">All tools</option></select>
+      <select id="agent"><option value="">All agents</option></select>
+      <label class="muted"><input type="checkbox" id="calls-only" checked> tool calls only</label>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>#</th><th>Time</th><th>Decision</th><th>Tool</th><th>Agent</th><th>Arguments</th><th>Reason / result</th><th>PII</th><th>ms</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>
+  </section>
+</main>
+<script src="viewer.js"></script>
+</body>
+</html>

@@ -34,7 +34,7 @@ agent-guard = "agent_guard.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-agent_guard = ["static/*.html"]
+agent_guard = ["static/*.html", "static/*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
