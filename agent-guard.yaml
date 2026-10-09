@@ -1,0 +1,25 @@
+# agent-guard demo configuration.
+# Relative paths are resolved against this file's directory, and upstream
+# servers are launched with this directory as their working directory.
+# `command: python` means "the Python interpreter running agent-guard".
+
+agent_id: demo-agent            # identity used for rate limits and the audit log
+namespace: true                 # expose tools as <server>__<tool>, e.g. files__read_file
+namespace_separator: "__"
+hide_denied_tools: true         # tools that policy always denies are not even listed
+
+servers:
+  files:
+    command: python
+    args: [examples/servers/files_server.py]
+    env:
+      FILES_SANDBOX: ${CONFIG_DIR}/examples/sandbox
+  payments:
+    command: python
+    args: [examples/servers/payments_server.py]
+
+policy: examples/policies/demo.yaml
+
+state_dir: .agent-guard         # audit log + pending approvals live here
+approvals:
+  timeout_seconds: 120
