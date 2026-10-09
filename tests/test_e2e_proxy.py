@@ -48,3 +48,22 @@ async def test_without_namespace(tmp_path: Path) -> None:
     async with Client(proxy_params(cfg)) as client:
         names = {t.name for t in (await client.list_tools()).tools}
         assert "refund" in names and "read_file" in names
+
+
+async def test_policy_denials_reach_the_agent_as_tool_errors(tmp_path: Path) -> None:
+    policy = {
+        "rules": [
+            {"tools": "files.delete_*", "action": "deny", "reason": "no deleting"},
+            {"tools": "payments.refund", "args": {"amount": {"max": 500}}},
+        ]
+    }
+    cfg = write_config(tmp_path, policy=policy)
+    async with Client(proxy_params(cfg)) as client:
+        names = {t.name for t in (await client.list_tools()).tools}
+        assert "files__delete_file" not in names  # hidden: always denied
+        r = await client.call_tool("files__delete_file", {"path": "x"})
+        assert r.is_error and "no deleting" in text(r)
+        r = await client.call_tool("payments__refund", {"amount": 900, "customer_id": "cus_ada001"})
+        assert r.is_error and "exceeds the maximum of 500" in text(r)
+        r = await client.call_tool("payments__refund", {"amount": 9, "customer_id": "cus_ada001"})
+        assert not r.is_error

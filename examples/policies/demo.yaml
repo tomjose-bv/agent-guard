@@ -1,1 +1,47 @@
+# Demo policy used by agent-guard.yaml and the scripted demo agent.
+# Tool ids are "<server>.<tool>" regardless of how tools are exposed to the agent.
 version: 1
+default_action: deny          # anything not explicitly allowed is denied
+
+rules:
+  # --- files -------------------------------------------------------------
+  - name: files-read-and-list
+    tools: ["files.read_file", "files.list_files"]
+    action: allow
+
+  - name: files-write-only-under-notes
+    tools: ["files.write_file"]
+    action: allow
+    args:
+      path: { required: true, path_under: ["notes"] }
+      content: { max_length: 10000 }
+
+  - name: never-delete
+    tools: ["files.delete_*"]
+    action: deny
+    reason: "deleting files is not permitted for agents"
+
+  # --- payments ----------------------------------------------------------
+  - name: lookup-rate-limit
+    tools: ["payments.lookup_customer"]
+    action: allow
+    rate_limit: { calls: 3, per_seconds: 60 }
+
+  - name: refund-guardrails
+    tools: ["payments.refund"]
+    action: allow
+    args:
+      amount: { required: true, type: number, min: 0.01, max: 500 }
+      customer_id: { required: true, regex: "cus_[a-z0-9]{3,20}" }
+    spend_limit: { cost_arg: amount, budget: 1000, per_seconds: 86400 }
+
+  - name: big-refunds-need-a-human
+    tools: ["payments.refund"]
+    when:
+      amount: { min: 100 }
+    action: require_approval
+    reason: "refunds of 100 or more need human approval"
+
+  - name: ping
+    tools: ["payments.ping"]
+    action: allow

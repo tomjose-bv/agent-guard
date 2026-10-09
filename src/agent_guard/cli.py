@@ -11,6 +11,7 @@ from contextlib import AsyncExitStack
 
 from agent_guard import __version__
 from agent_guard.config import Config, ConfigError, load_config
+from agent_guard.policy import PolicyError
 
 
 def _load(args: argparse.Namespace) -> Config:
@@ -78,7 +79,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     try:
         return int(args.func(args) or 0)
-    except ConfigError as e:
+    except (ConfigError, PolicyError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:

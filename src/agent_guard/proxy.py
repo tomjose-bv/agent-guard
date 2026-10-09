@@ -17,6 +17,7 @@ from mcp.server.stdio import stdio_server
 
 from agent_guard import __version__
 from agent_guard.config import Config
+from agent_guard.policy import PolicyEngine
 
 log = logging.getLogger("agent_guard.proxy")
 
@@ -37,8 +38,10 @@ def error_result(message: str) -> types.CallToolResult:
 class GuardedProxy:
     """Connects to upstream servers and forwards tool listing / calls."""
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, engine: PolicyEngine | None = None) -> None:
         self.config = config
+        self.engine = engine or PolicyEngine(config.load_policy())
+        self.agent_id = os.environ.get("AGENT_GUARD_AGENT_ID") or config.agent_id
         self.clients: dict[str, Client] = {}
         self.routes: dict[str, ToolRoute] = {}
 
@@ -76,13 +79,26 @@ class GuardedProxy:
 
     # ---- MCP-facing operations -----------------------------------------
     def list_tools(self) -> list[types.Tool]:
-        return [route.tool.model_copy(update={"name": route.exposed}) for route in self.routes.values()]
+        return [
+            route.tool.model_copy(update={"name": route.exposed})
+            for route in self.routes.values()
+            if not (self.config.hide_denied_tools and self.engine.statically_denied(route.tool_id, self.agent_id))
+        ]
 
     async def call_tool(self, name: str, arguments: dict[str, Any] | None) -> types.CallToolResult:
         route = self.routes.get(name)
         if route is None:
             return error_result(f"agent-guard: unknown tool {name!r}")
-        return await self.forward(route, arguments or {})
+        args = dict(arguments or {})
+        decision = self.engine.evaluate(route.tool_id, self.agent_id, args)
+        if decision.action == "deny":
+            return error_result(decision.reason)
+        if decision.action == "require_approval":
+            return error_result(f"agent-guard denied {route.tool_id}: approval required but not available")
+        problem = self.engine.acquire(decision, route.tool_id, self.agent_id, args)
+        if problem:
+            return error_result(problem)
+        return await self.forward(route, args)
 
     async def forward(self, route: ToolRoute, arguments: dict[str, Any]) -> types.CallToolResult:
         client = self.clients[route.server]
