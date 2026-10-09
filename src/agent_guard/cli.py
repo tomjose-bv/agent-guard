@@ -11,6 +11,7 @@ import sys
 import time
 from collections.abc import Sequence
 from contextlib import AsyncExitStack
+from pathlib import Path
 
 from agent_guard import __version__
 from agent_guard.config import Config, ConfigError, load_config
@@ -88,6 +89,51 @@ def _decide(args: argparse.Namespace, approved: bool) -> int:
     return 0
 
 
+def _audit_path(args: argparse.Namespace) -> Path:
+    if getattr(args, "path", None):
+        return Path(args.path)
+    return _load(args).audit_path
+
+
+def cmd_verify_log(args: argparse.Namespace) -> int:
+    from agent_guard.audit import verify
+
+    path = _audit_path(args)
+    res = verify(path)
+    if res.ok:
+        print(f"OK: {res.entries} entries, hash chain intact ({path})")
+        print(f"head hash: {res.head_hash}")
+        print("Tip: store the head hash elsewhere to also detect truncation of the newest entries.")
+        return 0
+    print(f"TAMPERED OR CORRUPT: {res.error}", file=sys.stderr)
+    print(f"{res.entries} entries verified before the problem ({path})", file=sys.stderr)
+    return 1
+
+
+def cmd_log(args: argparse.Namespace) -> int:
+    from agent_guard.audit import read_entries
+
+    for e in read_entries(_audit_path(args), limit=args.limit):
+        if e.get("event") != "tool_call":
+            print(f"#{e.get('seq')} {e.get('ts')} {e.get('event')} {e.get('approval_id') or ''}")
+            continue
+        print(
+            f"#{e.get('seq')} {e.get('ts')} {e.get('decision', '?'):16} {e.get('tool_id') or e.get('tool')} "
+            f"{json.dumps(e.get('arguments', {}), ensure_ascii=False)[:80]}"
+        )
+        if e.get("decision") != "allowed" and e.get("reason"):
+            print(f"      {e['reason'][:160]}")
+    return 0
+
+
+def cmd_ui(args: argparse.Namespace) -> int:
+    from agent_guard.viewer import serve
+
+    cfg = _load(args)
+    serve(cfg, host=args.host, port=args.port, open_browser=not args.no_browser)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="agent-guard", description="Policy-enforcing MCP proxy for AI agent tool calls.")
     p.add_argument("--version", action="version", version=f"agent-guard {__version__}")
@@ -110,6 +156,18 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("id", help="approval id (see `agent-guard pending`)")
         sp.add_argument("--note", help="note recorded with the decision (shown to the agent on deny)")
         sp.add_argument("--by", help="reviewer name (default: current OS user)")
+    for name, func, help_ in (
+        ("verify-log", cmd_verify_log, "Verify the audit log hash chain (detects edits, deletions, reordering)."),
+        ("log", cmd_log, "Print recent audit log entries."),
+    ):
+        sp = add(name, func, help_)
+        sp.add_argument("path", nargs="?", help="audit log file (default: from config)")
+        if name == "log":
+            sp.add_argument("-n", "--limit", type=int, default=30)
+    sp = add("ui", cmd_ui, "Open the local web viewer (audit log + pending approvals).")
+    sp.add_argument("--host", default="127.0.0.1")
+    sp.add_argument("--port", type=int, default=8765)
+    sp.add_argument("--no-browser", action="store_true")
     return p
 
 

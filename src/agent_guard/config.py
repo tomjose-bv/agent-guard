@@ -37,6 +37,8 @@ class UpstreamServer(_Strict):
 
 
 class AuditSettings(_Strict):
+    enabled: bool = True
+    fsync: bool = Field(default=False, description="fsync after every entry (durable, slower).")
     path: str | None = Field(default=None, description="JSONL audit log path; default <state_dir>/audit.jsonl")
     log_arguments: bool = Field(default=True, description="Record (post-redaction) arguments in the log.")
     log_results: bool = Field(default=True, description="Record a truncated (post-redaction) result preview.")
