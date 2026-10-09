@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections import Counter
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
@@ -17,7 +18,8 @@ from mcp.server.stdio import stdio_server
 
 from agent_guard import __version__
 from agent_guard.config import Config
-from agent_guard.policy import PolicyEngine
+from agent_guard import pii
+from agent_guard.policy import DENY_SUFFIX, PolicyEngine
 
 log = logging.getLogger("agent_guard.proxy")
 
@@ -33,6 +35,30 @@ class ToolRoute:
 
 def error_result(message: str) -> types.CallToolResult:
     return types.CallToolResult(content=[types.TextContent(type="text", text=message)], is_error=True)
+
+
+def redact_result(result: types.CallToolResult, detectors: list[str]) -> tuple[types.CallToolResult, Counter[str]]:
+    """Redact PII in text content, embedded text resources and structured content."""
+    counts: Counter[str] = Counter()
+    content: list[Any] = []
+    for block in result.content:
+        if isinstance(block, types.TextContent):
+            text, c = pii.redact_text(block.text, detectors)
+            counts.update(c)
+            block = block.model_copy(update={"text": text}) if c else block
+        elif isinstance(block, types.EmbeddedResource) and isinstance(block.resource, types.TextResourceContents):
+            text, c = pii.redact_text(block.resource.text, detectors)
+            counts.update(c)
+            if c:
+                block = block.model_copy(update={"resource": block.resource.model_copy(update={"text": text})})
+        content.append(block)
+    structured = result.structured_content
+    if structured is not None:
+        structured, c = pii.redact_value(structured, detectors)
+        counts |= c  # structured content usually mirrors the text content; don't double count
+    if not counts:
+        return result, counts
+    return result.model_copy(update={"content": content, "structured_content": structured}), counts
 
 
 class GuardedProxy:
@@ -90,15 +116,43 @@ class GuardedProxy:
         if route is None:
             return error_result(f"agent-guard: unknown tool {name!r}")
         args = dict(arguments or {})
-        decision = self.engine.evaluate(route.tool_id, self.agent_id, args)
+        tool_id = route.tool_id
+
+        decision = self.engine.evaluate(tool_id, self.agent_id, args)
         if decision.action == "deny":
             return error_result(decision.reason)
         if decision.action == "require_approval":
-            return error_result(f"agent-guard denied {route.tool_id}: approval required but not available")
-        problem = self.engine.acquire(decision, route.tool_id, self.agent_id, args)
+            return error_result(f"agent-guard denied {tool_id}: approval required but not available")
+
+        pii_rule = self.engine.policy.pii_for(tool_id)
+        if pii_rule and pii_rule.arguments != "off":
+            redacted, counts = pii.redact_value(args, pii_rule.detectors)
+            if counts:
+                if pii_rule.arguments == "block":
+                    return error_result(
+                        f"agent-guard denied {tool_id}: arguments contain PII ({pii.summarize(counts)}).{DENY_SUFFIX}"
+                    )
+                if pii_rule.arguments == "redact":
+                    args = redacted
+                log.info("PII in arguments of %s: %s (%s)", tool_id, pii.summarize(counts), pii_rule.arguments)
+
+        problem = self.engine.acquire(decision, tool_id, self.agent_id, args)
         if problem:
             return error_result(problem)
-        return await self.forward(route, args)
+
+        result = await self.forward(route, args)
+
+        if pii_rule and pii_rule.results != "off":
+            redacted_result, counts = redact_result(result, pii_rule.detectors)
+            if counts:
+                if pii_rule.results == "block":
+                    return error_result(
+                        f"agent-guard withheld the result of {tool_id}: it contained PII ({pii.summarize(counts)})."
+                    )
+                if pii_rule.results == "redact":
+                    result = redacted_result
+                log.info("PII in result of %s: %s (%s)", tool_id, pii.summarize(counts), pii_rule.results)
+        return result
 
     async def forward(self, route: ToolRoute, arguments: dict[str, Any]) -> types.CallToolResult:
         client = self.clients[route.server]

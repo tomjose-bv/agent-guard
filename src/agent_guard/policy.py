@@ -194,6 +194,12 @@ class PiiRule(_Strict):
 
     _lists = field_validator("tools", mode="before")(_as_list)
 
+    @field_validator("arguments", "results", mode="before")
+    @classmethod
+    def _yaml_off(cls, v: Any) -> Any:
+        # YAML 1.1 parses a bare `off` as boolean false.
+        return "off" if v is False else v
+
 
 class Policy(_Strict):
     version: Literal[1] = 1

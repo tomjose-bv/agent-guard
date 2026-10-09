@@ -67,3 +67,28 @@ async def test_policy_denials_reach_the_agent_as_tool_errors(tmp_path: Path) -> 
         assert r.is_error and "exceeds the maximum of 500" in text(r)
         r = await client.call_tool("payments__refund", {"amount": 9, "customer_id": "cus_ada001"})
         assert not r.is_error
+
+
+async def test_pii_redaction_and_blocking(tmp_path: Path) -> None:
+    policy = {
+        "pii": [
+            {"tools": "payments.lookup_customer", "arguments": "off", "results": "redact"},
+            {"tools": "files.write_file", "arguments": "redact", "results": "off"},
+            {"tools": "payments.ping", "arguments": "block", "results": "off"},
+        ]
+    }
+    cfg = write_config(tmp_path, policy=policy)
+    async with Client(proxy_params(cfg)) as client:
+        r = await client.call_tool("payments__lookup_customer", {"email": "ada@example.com"})
+        assert not r.is_error
+        body = text(r)
+        assert "4111" not in body and "415 555" not in body and "ada@example.com" not in body
+        assert "[REDACTED:CREDIT_CARD]" in body and "[REDACTED:PHONE]" in body
+        assert r.structured_content and r.structured_content["customer_id"] == "cus_ada001"
+
+        r = await client.call_tool("files__write_file", {"path": "n.txt", "content": "card 4111 1111 1111 1111"})
+        assert not r.is_error
+        assert (tmp_path / "sandbox" / "n.txt").read_text() == "card [REDACTED:CREDIT_CARD]"
+
+        r = await client.call_tool("payments__ping", {"message": "my ssn is 123-45-6789"})
+        assert r.is_error and "contain PII (ssn x1)" in text(r)

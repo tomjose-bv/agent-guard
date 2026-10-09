@@ -45,3 +45,17 @@ rules:
   - name: ping
     tools: ["payments.ping"]
     action: allow
+
+# --- PII ---------------------------------------------------------------
+# First matching entry wins. Modes: redact | block | log_only | off.
+pii:
+  - tools: ["payments.lookup_customer"]
+    arguments: "off"          # the email IS the lookup key; don't redact it
+    results: redact           # but never hand phone/card numbers back to the agent
+  - tools: ["files.write_file"]
+    arguments: redact         # keep PII out of files the agent writes
+    results: "off"
+  - tools: ["*"]
+    detectors: [email, phone, credit_card, iban, ssn]
+    arguments: log_only
+    results: redact
