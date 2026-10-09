@@ -14,6 +14,10 @@ agent  ──MCP──▶  agent-guard  ──MCP──▶  your MCP servers (fi
 - **Hash-chained JSONL audit log.** `agent-guard verify-log` shows the first entry that was edited, deleted or reordered.
 - **Small and local.** Pure Python, built on the official [`mcp` SDK](https://pypi.org/project/mcp/). No database, no daemon, no Node, no Docker.
 
+![Terminal recording of examples/demo_agent.py: allowed writes, denied path escape and delete, redacted card numbers and PII, a rate-limit denial, refund cap and pattern denials, then a 250 refund held for approval and approved, ending with "hash chain intact"](docs/media/demo-terminal.gif)
+
+*Real output of `python examples/demo_agent.py` (no LLM), replayed as a terminal animation. Absolute paths are shortened to repo-relative ones.*
+
 ## Who it's for
 
 People who run AI agents (Claude Desktop, IDE agents, custom agent loops, internal ops bots) that call tools that can **change things**: write files, move money, send email, touch production data. If you've wondered "what stops the agent from refunding 10,000 by mistake, and how would I know afterwards?", this is for you.
@@ -102,6 +106,10 @@ On a fresh clone (with a warm pip cache), `setup.ps1 -SkipTests` took 27 s and t
 | refund 250 | **held for approval**; a simulated reviewer approves after 2 s |
 
 Use `--approve manual` to approve it yourself (`agent-guard pending`, then `agent-guard approve <id>`, or the web viewer), or `--approve deny` to watch a rejection.
+
+![agent-guard web viewer showing the audit log after the demo: approved, allowed and denied tool calls with PII-masked arguments, denial reasons, redaction counts and per-call latency](docs/media/web-viewer.png)
+
+*`agent-guard ui` after the demo run: every tool call with its decision, masked arguments, reason or result, PII findings and timing. The header confirms the hash chain is intact.*
 
 An optional LLM-driven agent (`examples/llm_agent.py`) talks to any OpenAI-compatible endpoint configured in `.env` (copy `.env.example`; the default is a local Ollama at `http://localhost:11434/v1`). The scripted demo does not need it.
 
