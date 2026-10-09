@@ -87,27 +87,36 @@ class AuditLog:
         self._lock = threading.Lock()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lockfile = open(self.path.with_name(self.path.name + ".lock"), "a+b")  # noqa: SIM115
+        # Kept open: reopening per entry is slow on Windows (and triggers AV rescans).
+        self._file = open(self.path, "a+b")  # noqa: SIM115
+        self._known: tuple[int, str, int] | None = None  # (file size, last hash, last seq) after our last write
 
     def close(self) -> None:
+        self._file.close()
         self._lockfile.close()
+
+    def _head(self) -> tuple[str, int]:
+        size = self._file.seek(0, os.SEEK_END)
+        if self._known and self._known[0] == size:
+            return self._known[1], self._known[2]  # nobody else appended since our last write
+        last = _last_line(self._file)
+        if not last:
+            return GENESIS, 0
+        prev = json.loads(last)
+        return prev["hash"], int(prev["seq"])
 
     def append(self, event: dict[str, Any]) -> dict[str, Any]:
         with self._lock, _locked(self._lockfile):
-            with open(self.path, "a+b") as f:
-                last = _last_line(f)
-                if last:
-                    prev = json.loads(last)
-                    prev_hash, seq = prev["hash"], int(prev["seq"]) + 1
-                else:
-                    prev_hash, seq = GENESIS, 1
-                entry = {"seq": seq, "ts": datetime.now(timezone.utc).isoformat(timespec="milliseconds"), **event}
-                entry["prev_hash"] = prev_hash
-                entry["hash"] = entry_hash(entry)
-                f.seek(0, os.SEEK_END)
-                f.write(canonical(entry) + b"\n")
-                f.flush()
-                if self.fsync:
-                    os.fsync(f.fileno())
+            prev_hash, last_seq = self._head()
+            entry = {"seq": last_seq + 1, "ts": datetime.now(timezone.utc).isoformat(timespec="milliseconds"), **event}
+            entry["prev_hash"] = prev_hash
+            entry["hash"] = entry_hash(entry)
+            self._file.seek(0, os.SEEK_END)
+            self._file.write(canonical(entry) + b"\n")
+            self._file.flush()
+            if self.fsync:
+                os.fsync(self._file.fileno())
+            self._known = (self._file.tell(), entry["hash"], entry["seq"])
         return entry
 
 
