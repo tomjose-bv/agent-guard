@@ -1,0 +1,34 @@
+# Money-moving tools with layered guardrails.
+version: 1
+default_action: allow   # only payments tools are governed here
+
+rules:
+  - name: refund-shape
+    tools: ["payments.refund"]
+    args:
+      amount: { required: true, type: number, min: 0.01, max: 1000 }
+      customer_id: { required: true, regex: "cus_[a-z0-9]{3,20}" }
+      currency: { enum: ["USD", "EUR", "GBP"] }
+
+  - name: refund-budget-per-agent
+    tools: ["payments.refund"]
+    spend_limit: { cost_arg: amount, budget: 2000, per_seconds: 86400, scope: agent }
+    rate_limit: { calls: 20, per_seconds: 3600, scope: agent }
+
+  - name: refunds-over-200-need-approval
+    tools: ["payments.refund"]
+    when: { amount: { min: 200 } }
+    action: require_approval
+    approval_timeout_seconds: 300
+    reason: "refunds of 200 or more need a second pair of eyes"
+
+  - name: interns-cannot-refund
+    tools: ["payments.refund"]
+    agents: ["intern-*"]
+    action: deny
+    reason: "this agent is not allowed to move money"
+
+pii:
+  - tools: ["payments.*"]
+    arguments: "off"
+    results: redact

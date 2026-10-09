@@ -1,0 +1,14 @@
+# Read-only agent: may read and list, nothing else. Results are scrubbed of PII.
+version: 1
+default_action: deny
+
+rules:
+  - name: read-tools
+    tools: ["*.read_*", "*.list_*", "*.get_*", "*.search_*", "*.lookup_*"]
+    action: allow
+    rate_limit: { calls: 60, per_seconds: 60, scope: agent }
+
+pii:
+  - tools: ["*"]
+    arguments: log_only
+    results: redact

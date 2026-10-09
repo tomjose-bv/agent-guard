@@ -1,0 +1,16 @@
+# Block any call whose arguments contain PII, and withhold results that do.
+# Useful when tools forward data to third parties (search, web, email).
+version: 1
+default_action: allow
+
+rules:
+  - name: no-sql-ddl
+    tools: ["*"]
+    args:
+      query: { not_regex: "(?i)\\b(drop|truncate|alter)\\s+table\\b" }
+
+pii:
+  - tools: ["*"]
+    detectors: [email, phone, credit_card, iban, ssn]
+    arguments: block
+    results: block
