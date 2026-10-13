@@ -1,5 +1,7 @@
 # agent-guard
 
+[![CI](https://github.com/tomjose-bv/agent-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/tomjose-bv/agent-guard/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **A policy-enforcing MCP proxy for AI agents with tool access.** Put agent-guard between your agent and its MCP servers to get allow/deny rules, argument constraints, rate and spend limits, PII redaction, human approval for risky calls, and a tamper-evident audit log. You don't have to change the agent or the servers.
 
 ```
