@@ -53,6 +53,16 @@ flowchart LR
 3. On every `tools/call` it evaluates the policy. Denials go back to the agent as an error result. Allowed calls get PII handling, are forwarded, the result is scanned, and one audit entry is appended.
 4. Approvals are files in `.agent-guard/approvals/`, so the CLI and the web viewer can resolve them from another terminal without any shared server.
 
+## Install
+
+```sh
+pip install "git+https://github.com/tomjose-bv/agent-guard@v0.1.0"
+```
+
+Or download the wheel from the [v0.1.0 release](https://github.com/tomjose-bv/agent-guard/releases/tag/v0.1.0)
+and run `pip install agent_guard-0.1.0-py3-none-any.whl`. To try the demo and run the tests,
+use the quickstart below.
+
 ## Quickstart (about 2 minutes)
 
 Requires Python 3.10+ and git.
